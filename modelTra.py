@@ -12,20 +12,18 @@ class EncoderCNN(nn.Module):
         """Load the pretrained ResNet-152 and replace top fc layer."""
         super(EncoderCNN, self).__init__()
         resnet = models.resnet152(pretrained=True)
-        modules = list(resnet.children())[:-1]      # delete the last fc layer.
+        modules = list(resnet.children())[:-1]     # delete the last fc layer.
+ #       self.AvgPooling = nn.AdaptiveAvgPool2d((1,1))
         self.resnet = nn.Sequential(*modules)
         self.linear = nn.Linear(resnet.fc.in_features, embed_size)
         self.bn = nn.BatchNorm1d(embed_size, momentum=0.01)
         
     def forward(self, images):
         """Extract feature vectors from input images."""
-#        print(images.size())  #zjx
-        features = self.resnet(images) # 64 * 2048  ---> batch_size * 2048?
-#        print(features.size())  #zjx
-        features = features.reshape(features.size(0), -1) # 64 * 2048   ---->  batch_size * 2048?
-#        print("-----")     #zjx
-#        print(features.size())  #zjx
-        features = self.bn(self.linear(features)) # 64 * 512   --->  batch_size * 512?
+        features = self.resnet(images) # 64 * 2048  ---> batch_size * 2048 * 1 * 1
+#        features = self.AvgPooling(features)
+        features = features.reshape(features.size(0), -1) # 64 * 2048   ---->  batch_size * 2048
+        features = self.bn(self.linear(features)) # 64 * 512   --->  batch_size * 512
         return features
     
 class DecoderRNN(nn.Module):
@@ -34,7 +32,6 @@ class DecoderRNN(nn.Module):
         super(DecoderRNN, self).__init__()
         self.vocab_size = vocab_size
         self.dropout = dropout
-
         self.embedding = nn.Embedding(vocab_size, embed_size)
         self.decode_step = nn.LSTMCell(embed_size, hidden_size, bias=True)
         self.fc = nn.Linear(hidden_size, vocab_size)
@@ -44,7 +41,7 @@ class DecoderRNN(nn.Module):
         
         batch_size = images.size(0) #64
         vocab_size = self.vocab_size #vocab size
-        
+
         caption_lengths, sort_ind = length.squeeze(1).sort(dim=0, descending=True)
         features = images[sort_ind] #2048
         captions = captions[sort_ind] #512
@@ -59,5 +56,5 @@ class DecoderRNN(nn.Module):
             h, c = self.decode_step(embeddings[:batch_size_t, t, :], (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
-        
+
         return predictions, captions, decode_lengths, sort_ind

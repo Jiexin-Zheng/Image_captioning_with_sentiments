@@ -19,3 +19,11 @@ if __name__ == '__main__':
                        min_word_freq=5,
                        output_folder='./data/',
                        max_len=50)
+
+    create_input_files_sen(dataset='coco',
+                       karpathy_json_path='./data/dataset_coco.json',
+                       image_folder='./data/',
+                       captions_per_image=5,
+                       min_word_freq=5,
+                       output_folder='./data/',
+                       max_len=50)
