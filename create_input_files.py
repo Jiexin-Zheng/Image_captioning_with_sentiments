@@ -20,10 +20,10 @@ if __name__ == '__main__':
                        output_folder='./data/',
                        max_len=50)
 
-    create_input_files_sen(dataset='coco',
-                       karpathy_json_path='./data/dataset_coco.json',
+    create_input_files_sen(dataset='senticap',
+                       karpathy_json_path='./data/senticap_dataset.json',
                        image_folder='./data/',
-                       captions_per_image=5,
-                       min_word_freq=5,
+                       captions_per_image=6,
+                       min_word_freq=1,
                        output_folder='./data/',
                        max_len=50)

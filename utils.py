@@ -25,7 +25,6 @@ def create_input_files_att(dataset, karpathy_json_path, image_folder, captions_p
     with open(karpathy_json_path, 'r') as j:
         data = json.load(j)
 
-  #  print(data)
 
     # Read image paths and captions for each image
     train_image_paths = []
@@ -406,7 +405,7 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
     Creates input files for training, validation, and test data.
     """
 
-    assert dataset in {'coco', 'flickr8k', 'flickr30k'}
+    assert dataset in {'coco', 'flickr8k', 'flickr30k', 'senticap'}
 
     with open(karpathy_json_path, 'r') as j:
         data = json.load(j)
@@ -414,35 +413,55 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
     # Read image paths and captions for each image
     train_image_paths = []
     train_image_captions = []
+    train_image_sentiments = []
+    train_image_caps_sens = []
     val_image_paths = []
     val_image_captions = []
+    val_image_sentiments = []
+    val_image_caps_sens = []
     test_image_paths = []
     test_image_captions = []
+    test_image_sentiments = []
+    test_image_caps_sens = []
     word_freq = Counter()
 
     for img in data['images']:
         captions = []
+        imgsens = []
+        caps_sens_tmp = []
         for c in img['sentences']:
+            tmp_list = []
             # Update word frequency
             word_freq.update(c['tokens'])
             if len(c['tokens']) <= max_len:
                 captions.append(c['tokens'])
+                tmp_list.append(c['tokens'])
+            # save the sentiment of each caption
+            imgsens.append(c['sentiment'])
+            tmp_list.append(c['sentiment'])
+            caps_sens_tmp.append(tmp_list)
 
         if len(captions) == 0:
             continue
 
         path = os.path.join(image_folder, img['filepath'], img['filename']) if dataset == 'coco' else os.path.join(
-            image_folder, img['filename'])
+            image_folder, 'image', img['filename'])
 
         if img['split'] in {'train', 'restval'}:
             train_image_paths.append(path)
             train_image_captions.append(captions)
+            train_image_sentiments.append(imgsens)
+            train_image_caps_sens.append(caps_sens_tmp)
         elif img['split'] in {'val'}:
             val_image_paths.append(path)
             val_image_captions.append(captions)
+            val_image_sentiments.append(imgsens)
+            val_image_caps_sens.append(caps_sens_tmp)
         elif img['split'] in {'test'}:
             test_image_paths.append(path)
             test_image_captions.append(captions)
+            test_image_sentiments.append(imgsens)
+            test_image_caps_sens.append(caps_sens_tmp)
 
     # Sanity check
     assert len(train_image_paths) == len(train_image_captions)
@@ -466,11 +485,14 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
 
     # Sample captions for each image, save images to HDF5 file, and captions and their lengths to JSON files
     seed(123)
-    for impaths, imcaps, split in [(train_image_paths, train_image_captions, 'TRAIN'),
-                                   (val_image_paths, val_image_captions, 'VAL'),
-                                   (test_image_paths, test_image_captions, 'TEST')]:
 
-        with h5py.File(os.path.join(output_folder, split + '_tra_IMAGES_' + base_filename + '.hdf5'), 'a') as h:
+
+    for impaths, imcaps, imgsens, caps_sens, split in [(train_image_paths, train_image_captions, train_image_sentiments, train_image_caps_sens, 'TRAIN'),
+                                   (val_image_paths, val_image_captions, val_image_sentiments, val_image_caps_sens, 'VAL'),
+                                   (test_image_paths, test_image_captions, test_image_sentiments, test_image_caps_sens, 'TEST')]:
+
+
+        with h5py.File(os.path.join(output_folder, split + '_sen_IMAGES_' + base_filename + '.hdf5'), 'a') as h:
             # Make a note of the number of captions we are sampling per image
             h.attrs['captions_per_image'] = captions_per_image
 
@@ -481,14 +503,25 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
 
             enc_captions = []
             caplens = []
+            sens = []
 
             for i, path in enumerate(tqdm(impaths)):
-
-                # Sample captions
-                if len(imcaps[i]) < captions_per_image:
-                    captions = imcaps[i] + [choice(imcaps[i]) for _ in range(captions_per_image - len(imcaps[i]))]
+                # Sample captions with corresponding sentiments
+                if len(caps_sens[i]) < captions_per_image:
+                    pairs = caps_sens[i] + [choice(caps_sens[i]) for _ in range(captions_per_image - len(caps_sens[i]))]
+                    captions = pairs[:][0]
+                    sentiments = pairs[:][1]
                 else:
-                    captions = sample(imcaps[i], k=captions_per_image)
+                    pairs = sample(caps_sens[i], k=captions_per_image)
+                    captions = pairs[:][0]
+                    sentiments = pairs[:][1]
+
+
+                # # Sample captions
+                # if len(imcaps[i]) < captions_per_image:
+                #     captions = imcaps[i] + [choice(imcaps[i]) for _ in range(captions_per_image - len(imcaps[i]))]
+                # else:
+                #     captions = sample(imcaps[i], k=captions_per_image)
 
                 # Sanity check
                 assert len(captions) == captions_per_image
@@ -507,6 +540,7 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
                 # Save image to HDF5 file
                 images[i] = img
 
+                sens.append(sentiments)
                 for j, c in enumerate(captions):
                     # Encode captions
                     enc_c = [word_map['<start>']] + [word_map.get(word, word_map['<unk>']) for word in c] + [
@@ -521,9 +555,12 @@ def create_input_files_sen(dataset, karpathy_json_path, image_folder, captions_p
             # Sanity check
             assert images.shape[0] * captions_per_image == len(enc_captions) == len(caplens)
 
-            # Save encoded captions and their lengths to JSON files
-            with open(os.path.join(output_folder, split + '_tra_CAPTIONS_' + base_filename + '.json'), 'w') as j:
+            # Save encoded captions, their lengths, and their sentiments to JSON files
+            with open(os.path.join(output_folder, split + '_sen_CAPTIONS_' + base_filename + '.json'), 'w') as j:
                 json.dump(enc_captions, j)
 
-            with open(os.path.join(output_folder, split + '_tra_CAPLENS_' + base_filename + '.json'), 'w') as j:
+            with open(os.path.join(output_folder, split + '_sen_CAPLENS_' + base_filename + '.json'), 'w') as j:
                 json.dump(caplens, j)
+
+            with open(os.path.join(output_folder, split + '_sen_SENS_' + base_filename + '.json'), 'w') as j:
+                json.dump(sentiments, j)
